@@ -1,0 +1,19 @@
+# 本地凭据/配置（API key 在环境变量，config.json 含个人 playlist_id）
+config.json
+
+# 抓取状态与中间产物
+state.json
+new_videos.json
+
+# 生成的摘要归档（config.json 里的 output_dir）
+YoutubeInbox/
+*-YouTube 每日摘要.md
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# macOS
+.DS_Store
