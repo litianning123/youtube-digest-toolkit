@@ -96,20 +96,33 @@ def outline_summary(description: str, max_chars: int = 500) -> str:
     return text
 
 
-def filter_videos(videos: list[dict]) -> list[tuple[dict, list[str]]]:
-    """只保留金融/理财/AI/科技类，返回 (video, topics)。保持原有顺序。"""
+def filter_videos(
+    videos: list[dict], topics: list[str] | None = None
+) -> list[tuple[dict, list[str]]]:
+    """只保留金融/理财/AI/科技类，返回 (video, topics)。保持原有顺序。
+
+    topics 给定时（如 config.json 的 ["finance", "ai_tech"]）只保留命中其中主题的视频。
+    """
+    allowed = set(topics) if topics else None
     kept = []
     for v in videos:
-        topics = classify(v.get("title", ""), v.get("description", ""))
-        if topics:
-            kept.append((v, topics))
+        matched = classify(v.get("title", ""), v.get("description", ""))
+        if allowed is not None:
+            matched = [t for t in matched if t in allowed]
+        if matched:
+            kept.append((v, matched))
     return kept
 
 
-def build_digest(digest_date: str, videos: list[tuple[dict, list[str]]]) -> str:
-    """生成整份每日摘要 Markdown。按推荐指数从高到低排序；无评分的沉底并保持原序。"""
+def build_digest(
+    digest_date: str, videos: list[tuple[dict, list[str]]], max_items: int | None = None
+) -> str:
+    """生成整份每日摘要 Markdown。按推荐指数从高到低排序；无评分的沉底并保持原序。
+
+    先排序再截断，所以 max_items 截掉的是分数最低的；缺省用 MAX_ITEMS。
+    """
     videos = sorted(videos, key=lambda vt: -(vt[0].get("score") or -1))
-    videos = videos[:MAX_ITEMS]
+    videos = videos[: max_items or MAX_ITEMS]
     lines = [
         "---",
         f"date: {digest_date}",
