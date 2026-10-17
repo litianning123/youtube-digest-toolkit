@@ -87,9 +87,11 @@ YouTube 官方不提供字幕接口，但 NotebookLM（Google 的 AI 笔记服�
 （MIT 协议）即可程序化调用，不限视频分数、所有视频都能出精读：
 
 ```bash
-pip3 install notebooklm-py
-notebooklm login            # 弹浏览器，用 Google 账号登录一次（建议用小号）
-python3 fetch_notebooklm.py # 建当天专用 notebook → 加视频源 → 固定中文 prompt 提问
+pip3 install "notebooklm-py[cookies]"      # 复用浏览器登录态需要 cookies extra
+notebooklm login --browser-cookies chrome  # 一次性登录（建议小号）；之后脚本每次自动 auth refresh
+python3 fetch_notebooklm.py   # 建当天专用 notebook → 加视频源 → 逐个提问
+                              # 精读落到 notebooklm-cache/<video_id>.md
+python3 make_digest.py --with-cache   # 生成摘要时自动回填精读
 ```
 
 输出 `notebooklm-cache/<video_id>.md`：Obsidian-ready 的独立精读笔记，含完整
@@ -100,9 +102,10 @@ frontmatter（标题/日期/video_id/视频网址/频道/时长/tags），正文
 - **关键概念**：3–5 个适合做双链的核心概念，`digest.py` 会渲染成 `[[双链]]`；
 - **金句摘录**：2–3 条视频原话，引用块格式。
 
-把精读正文写入视频的 `deep_dive` 字段（标记 `deep_dive_source: notebooklm`），
-元信息写入 `nb_tags` / `nb_concepts` / `nb_quotes`，`digest.py` 会自动渲染，
-标签还会并入文章 frontmatter。
+`make_digest.py --with-cache` 会读这些笔记：正文填进 `deep_dive`
+（标记 `deep_dive_source: notebooklm`），「内容标签 / 关键概念 / 金句摘录」
+填进 `nb_tags` / `nb_concepts` / `nb_quotes`，`digest.py` 负责渲染，
+标签还会并入文章 frontmatter。没有笔记、或想手写，直接给视频补这些字段同样生效。
 
 环境注意：如果你的机器 `no_proxy` 环境变量里有 IPv6 条目（如 `::1`），
 `notebooklm` 命令会报 `Invalid port` 起不来——这是 notebooklm-py 依赖的 httpx
@@ -181,8 +184,23 @@ Windows 可用任务计划程序实现同样效果。
 4. 全文精读：在自己的电脑上跑一次 `notebooklm login`（建议小号），
    之后每天的定时任务会自动用 NotebookLM 出精读。
 
-Token 开销参考：每天约 2–5 万 tokens，占免费版每周额度约 0.02%–0.05%；
+Token 开销参考：每天约 2–5 万 tokens（额度占比以 Muse 官方口径为准）；
 NotebookLM 的总结在 Google 服务端完成，不占你的 token。
+
+## 文件说明
+
+| 文件 | 作用 |
+| --- | --- |
+| `fetch.py` | 抓播放列表新增视频（含高赞评论）→ `new_videos.json`；`--mark-seen` 记账到 `state.json` |
+| `digest.py` | 渲染库：分类/章节/评论/精读/Markdown，可单独 import |
+| `make_digest.py` | 组装当天摘要目录；`--with-cache` 回填精读，`git_push` 提交推送 |
+| `fetch_notebooklm.py` | 用 NotebookLM 出精读 → `notebooklm-cache/<video_id>.md` |
+| `fetch_transcript.py` | TranscriptYT 降级：全文转写 → `transcripts/<video_id>.txt` |
+| `notebooklm` | wrapper 脚本：清洗 `no_proxy` 里的 IPv6 条目后调用 CLI |
+| `config.example.json` | 配置模板，复制成 `config.json` 后填 `playlist_id` |
+
+`config.json`、`state.json`、`new_videos.json`、`notebooklm-cache/`、`transcripts/`
+与生成的摘要目录都在 `.gitignore` 里，不会被提交。
 
 ## 限制
 
@@ -193,3 +211,7 @@ NotebookLM 的总结在 Google 服务端完成，不占你的 token。
 - 每个人的 API key 互相独立，请勿分享自己的 key。
 - `notebooklm-py` 是非官方逆向客户端，Google 改内部接口就可能失效；
   届时用 TranscriptYT 降级方案顶上。
+
+## 许可
+
+MIT，见 [LICENSE](LICENSE)。

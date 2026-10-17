@@ -13,12 +13,14 @@
     python3 fetch.py            # 先抓取
     python3 make_digest.py      # 用今天日期生成
     python3 make_digest.py 2026-10-14   # 指定日期
+    python3 make_digest.py --with-cache # 顺带把 notebooklm-cache/ 里的精读回填进摘要
     python3 fetch.py --mark-seen        # 生成后标记已处理，避免明天重复
 
 可选：在生成前给视频补字段，摘要会自动渲染——
     score / score_reason（推荐指数）、key_comments（精选评论）、
     further_reading（延伸阅读）、deep_dive + deep_dive_source（精读）、
     nb_tags / nb_concepts / nb_quotes（NotebookLM 元信息）。
+    `--with-cache` 会自动从 fetch_notebooklm.py 的输出里补后两组。
 
 output_dir 支持绝对路径，用来直接写进 Obsidian 仓库：
     "output_dir": "/Users/me/Obsidian/Inbox"
@@ -29,6 +31,7 @@ output_dir 支持绝对路径，用来直接写进 Obsidian 仓库：
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 import sys
 from datetime import date
@@ -41,10 +44,79 @@ from digest import (
     build_index,
     filter_videos,
 )
+from fetch_notebooklm import CACHE_DIR as NB_CACHE_DIR
 
 HERE = Path(__file__).resolve().parent
 CONFIG = HERE / "config.json"
 IN = HERE / "new_videos.json"
+
+FRONTMATTER_RE = re.compile(r"\A---\n.*?\n---\n", re.S)
+DIVE_SECTION_RE = re.compile(r"\n## (?:内容标签|关键概念|金句摘录)\s*\n", re.S)
+
+
+def parse_cache_note(text: str) -> dict:
+    """把 fetch_notebooklm.py 生成的精读笔记拆成摘要需要的字段。
+
+    笔记格式见 fetch_notebooklm.build_enriched_note：YAML frontmatter、
+    `# 标题`、两行视频元信息、正文，最后是「内容标签 / 关键概念 / 金句摘录」
+    三个可选小节。正文取到第一个小节标题为止。
+    """
+    fm_match = FRONTMATTER_RE.match(text)
+    frontmatter = fm_match.group(0) if fm_match else ""
+    body = text[fm_match.end():] if fm_match else text
+
+    tags: list[str] = []
+    for line in frontmatter.splitlines():
+        if line.startswith("tags:") and "[" in line:
+            raw = line.split("[", 1)[1].rstrip("]")
+            tags = [t.strip() for t in raw.split(",") if t.strip()]
+            break
+    tags = [t for t in tags if t not in ("youtube", "精读", "每日摘要")]
+
+    # 去掉 `# 标题` 与紧随其后的 `> 视频链接` / `> 频道` 两行
+    lines = body.splitlines()
+    while lines and not lines[0].strip():
+        lines.pop(0)
+    if lines and lines[0].startswith("# "):
+        lines.pop(0)
+    while lines and (not lines[0].strip() or lines[0].startswith(">")):
+        lines.pop(0)
+    body = "\n".join(lines)
+
+    concepts: list[dict] = []
+    quotes: list[str] = []
+    for chunk in re.split(r"\n## ", "\n" + body)[1:]:
+        head, _, rest = chunk.partition("\n")
+        head = head.strip()
+        if head == "内容标签":
+            tags += [
+                t.strip().lstrip("#")
+                for t in rest.replace("\n", " ").split()
+                if t.strip().lstrip("#")
+            ]
+        elif head == "关键概念":
+            for line in rest.splitlines():
+                m = re.match(r"\s*-\s+\*\*(.+?)\*\*\s*(?:[：:]\s*(.*))?$", line)
+                if m:
+                    concepts.append(
+                        {"name": m.group(1).strip(), "desc": (m.group(2) or "").strip()}
+                    )
+        elif head == "金句摘录":
+            for line in rest.splitlines():
+                q = line.strip().lstrip(">").strip().strip("\"'“”‘’").strip()
+                if q:
+                    quotes.append(q)
+    body = DIVE_SECTION_RE.split(body, maxsplit=1)[0].strip()
+
+    out: dict = {"deep_dive": body, "deep_dive_source": "notebooklm"}
+    if tags:
+        out["nb_tags"] = list(dict.fromkeys(tags))
+    if concepts:
+        out["nb_concepts"] = concepts
+    if quotes:
+        out["nb_quotes"] = quotes
+    return out
+
 
 
 def load_config() -> dict:
@@ -120,12 +192,26 @@ def git_publish(out_dir: Path, message: str) -> None:
 
 
 def main(argv: list[str]) -> int:
-    digest_date = argv[1] if len(argv) > 1 else date.today().isoformat()
+    positional = [a for a in argv[1:] if not a.startswith("-")]
+    with_cache = "--with-cache" in argv
+    digest_date = positional[0] if positional else date.today().isoformat()
     config = load_config()
     if not IN.exists():
         sys.exit("new_videos.json 不存在：请先运行 python3 fetch.py")
 
     videos = json.loads(IN.read_text(encoding="utf-8"))
+    if with_cache:
+        filled = 0
+        for v in videos:
+            vid = v.get("video_id", "")
+            note = NB_CACHE_DIR / f"{vid}.md"
+            if not vid or not note.is_file():
+                continue
+            data = parse_cache_note(note.read_text(encoding="utf-8"))
+            if data.get("deep_dive"):
+                v.update(data)
+                filled += 1
+        print(f"从 notebooklm-cache 回填 {filled} 个视频的精读。")
     kept = filter_videos(videos, config.get("topics"))
     cap = config.get("max_items") or MAX_ITEMS
 
