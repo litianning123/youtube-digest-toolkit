@@ -7,6 +7,7 @@
                     --> <output_dir>/<日期>-YouTube 每日摘要/
                         ├── README.md      总览：排行榜 + wikilink
                         └── NN-标题.md     每个视频一篇独立文章
+                    --> （config.git_push 为真时）commit + push 到 output_dir 所属仓库
 
 用法：
     python3 fetch.py            # 先抓取
@@ -18,11 +19,17 @@
     score / score_reason（推荐指数）、key_comments（精选评论）、
     further_reading（延伸阅读）、deep_dive + deep_dive_source（精读）、
     nb_tags / nb_concepts / nb_quotes（NotebookLM 元信息）。
+
+output_dir 支持绝对路径，用来直接写进 Obsidian 仓库：
+    "output_dir": "/Users/me/Obsidian/Inbox"
+配 "git_push": true 时，写完把该目录提交并推送。推送失败只告警不中断，
+下次运行会重新推。
 """
 
 from __future__ import annotations
 
 import json
+import subprocess
 import sys
 from datetime import date
 from pathlib import Path
@@ -46,6 +53,72 @@ def load_config() -> dict:
     return json.loads(CONFIG.read_text(encoding="utf-8"))
 
 
+def resolve_output_base(raw: str) -> Path:
+    """output_dir 支持相对（相对本工具包）或绝对（如 Obsidian 仓库里的目录）路径。"""
+    p = Path(raw).expanduser()
+    return p if p.is_absolute() else HERE / p
+
+
+def display(path: Path) -> str:
+    try:
+        return str(path.relative_to(HERE))
+    except ValueError:
+        return str(path)
+
+
+def git_publish(out_dir: Path, message: str) -> None:
+    """把 out_dir 提交并推送到它所属的 git 仓库。
+
+    发布失败不影响已经生成的摘要：只往 stderr 告警，退出码仍为 0。
+    没有变更时跳过提交，但仍 push 一次，把上次没推成功的提交带上去。
+    """
+    def git(*args: str) -> subprocess.CompletedProcess:
+        return subprocess.run(
+            ["git", "-C", str(out_dir), *args], capture_output=True, text=True
+        )
+
+    top = git("rev-parse", "--show-toplevel")
+    if top.returncode != 0:
+        print(
+            f"警告：output_dir 不在 git 仓库里，跳过提交推送：{out_dir}",
+            file=sys.stderr,
+        )
+        return
+    root = top.stdout.strip()
+
+    if git("add", "--", str(out_dir)).returncode != 0:
+        print(f"警告：git add 失败：{root}", file=sys.stderr)
+        return
+    staged = subprocess.run(
+        ["git", "-C", root, "diff", "--cached", "--quiet", "--", str(out_dir)]
+    ).returncode
+    if staged != 0:
+        commit = subprocess.run(
+            ["git", "-C", root, "commit", "-q", "-m", message],
+            capture_output=True,
+            text=True,
+        )
+        if commit.returncode != 0:
+            print(
+                f"警告：commit 失败（可能没配 user.name/user.email）："
+                f"{(commit.stderr or commit.stdout).strip()[:300]}",
+                file=sys.stderr,
+            )
+            return
+        print(f"已提交：{message}")
+    else:
+        print("无变更，跳过提交。")
+
+    push = subprocess.run(["git", "-C", root, "push"], capture_output=True, text=True)
+    if push.returncode != 0:
+        print(
+            f"警告：push 失败（下次运行会重试）：{(push.stderr or push.stdout).strip()[:300]}",
+            file=sys.stderr,
+        )
+    else:
+        print("已推送。")
+
+
 def main(argv: list[str]) -> int:
     digest_date = argv[1] if len(argv) > 1 else date.today().isoformat()
     config = load_config()
@@ -56,7 +129,10 @@ def main(argv: list[str]) -> int:
     kept = filter_videos(videos, config.get("topics"))
     cap = config.get("max_items") or MAX_ITEMS
 
-    out_dir = HERE / config.get("output_dir", "YoutubeInbox") / f"{digest_date}-YouTube 每日摘要"
+    out_dir = (
+        resolve_output_base(config.get("output_dir", "YoutubeInbox"))
+        / f"{digest_date}-YouTube 每日摘要"
+    )
     out_dir.mkdir(parents=True, exist_ok=True)
     # 同一天重跑时清掉上次生成的产物，避免残留旧文章与总览对不上
     (out_dir / "README.md").unlink(missing_ok=True)
@@ -75,10 +151,12 @@ def main(argv: list[str]) -> int:
 
     print(
         f"新增 {len(videos)} 个 → 入选 {len(kept)} 个 → 写入 {len(ranked)} 篇："
-        f"{out_dir.relative_to(HERE)}"
+        f"{display(out_dir)}"
     )
     if not ranked:
         print("提示：没有视频命中 config.json 的 topics，只生成了空的 README.md。")
+    if config.get("git_push"):
+        git_publish(out_dir, f"每日摘要：{digest_date}（{len(ranked)} 篇）")
     return 0
 
 

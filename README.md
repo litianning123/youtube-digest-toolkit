@@ -40,6 +40,22 @@ python3 fetch.py          # 抓取新增视频 → new_videos.json
 python3 make_digest.py    # 过滤 → 生成 YoutubeInbox/<日期>-YouTube 每日摘要/
 ```
 
+`config.json` 控制输出与过滤：
+
+| 字段 | 作用 |
+| --- | --- |
+| `output_dir` | 摘要写到哪；相对路径按本工具包算，也可写绝对路径（如 `/Users/you/Obsidian/Inbox`） |
+| `git_push` | `true` 时写完把该目录 commit + push 到它所属的仓库（推送失败只告警，下次重试） |
+| `topics` | 保留哪些主题：`finance`、`ai_tech`；空数组视为不过滤 |
+| `max_items` | 每天最多几篇（先按分数排序再截断，默认 10） |
+| `transcriptyt_key` | TranscriptYT 的 key，只走降级方案时才需要 |
+
+**写进 Obsidian 仓库并自动同步**：把 `output_dir` 指向 vault 里的目录（建议绝对路径），
+并设 `"git_push": true`。`make_digest.py` 生成完会 `git add` 当天那个目录、
+`git commit -m "每日摘要：<日期>（N 篇）"`、`git push`。
+同一天重跑若没有实际变更，会跳过提交但仍 push 一次，把之前没推成功的提交补上。
+cron 环境下要保证 git 凭据可用（SSH key 或 credential helper），否则只会得到一条 push 失败告警。
+
 `digest.py` 是摘要生成库（只需 Python 3 标准库），拿去用。
 每天生成一个目录，内含总览 `README.md`（排行榜用 wikilink 链到各文章）
 和每个视频一篇独立文章 `NN-标题.md`（NN 为推荐指数排名），避免长文被截断、
@@ -119,16 +135,19 @@ python3 fetch.py --mark-seen
 Linux/macOS cron 示例（每天早上 8:40）：
 
 ```
-40 8 * * * cd /path/to/toolkit && YOUTUBE_API_KEY=xxx python3 fetch.py && python3 make_digest.py && python3 fetch.py --mark-seen
+40 8 * * * cd /path/to/toolkit && export YOUTUBE_API_KEY=xxx && python3 fetch.py && python3 make_digest.py && python3 fetch.py --mark-seen
 ```
 
-其中 `make_digest.py` 就是仓库里的组装脚本（过滤 → 排序截断 → 生成总览与各篇文章）；
+其中 `make_digest.py` 就是仓库里的组装脚本（过滤 → 排序截断 → 生成总览与各篇文章，
+`git_push` 开启时还会提交推送）；
 LLM 打分、`fetch_notebooklm.py` 精读在它前后各插一步即可。
+`export` 不能用 `A=1 cmd1 && cmd2` 那种写法替代：`fetch.py` 在模块级就校验 key，
+连 `--mark-seen` 也需要环境变量。
 Windows 可用任务计划程序实现同样效果。
 
 ## 输出示例
 
-落在 `config.json` 的 `output_dir`（默认 `YoutubeInbox/`）下，每天一个目录 `YYYY-MM-DD-YouTube 每日摘要/`：
+落在 `config.json` 的 `output_dir`（默认 `YoutubeInbox/`，也可以是指向 Obsidian 仓库的绝对路径）下，每天一个目录 `YYYY-MM-DD-YouTube 每日摘要/`：
 - `README.md`：总览，含排行榜（wikilink 链到各文章）
 - `NN-标题.md`：每个视频一篇独立文章，含 frontmatter
  （date/rank/video_id/source/channel/duration/score/topics/tags），
@@ -156,9 +175,9 @@ Windows 可用任务计划程序实现同样效果。
    key 在 Muse 给你的安全链接里填，Muse 看不到原文。
 2. Muse 来做：通过 `custom_connector_setup` 建 `custom.youtube` 连接器、
    适配抓取脚本、创建两个定时任务（每天早上检查更新生成摘要、每周日出周报）。
-3. 输出位置你定：有 Obsidian+Git 的可以进自己的知识库（像原版一样）；
-   没有的可以选 Google Drive、本地文件，甚至每天发邮件摘要。
-   输出目录在 `config.json` 的 `output_dir` 里改一行就行。
+3. 输出位置你定：有 Obsidian+Git 的，把 `output_dir` 指到 vault 里的目录并设
+   `"git_push": true`，每次生成完自动 commit + push 进知识库（像原版一样）；
+   没有的可以留在本地，或由 Muse 侧再转存到 Google Drive / 发邮件（不在本仓库里）。
 4. 全文精读：在自己的电脑上跑一次 `notebooklm login`（建议小号），
    之后每天的定时任务会自动用 NotebookLM 出精读。
 
