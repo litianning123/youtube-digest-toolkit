@@ -71,7 +71,7 @@ YouTube 官方不提供字幕接口，但 NotebookLM（Google 的 AI 笔记服�
 （MIT 协议）即可程序化调用，不限视频分数、所有视频都能出精读：
 
 ```bash
-pip install notebooklm-py
+pip3 install notebooklm-py
 notebooklm login            # 弹浏览器，用 Google 账号登录一次（建议用小号）
 python3 fetch_notebooklm.py # 建当天专用 notebook → 加视频源 → 固定中文 prompt 提问
 ```

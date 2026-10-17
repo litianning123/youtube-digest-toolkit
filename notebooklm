@@ -28,7 +28,7 @@ if [ -z "$BIN" ]; then
   IFS="$OLD_IFS"
 fi
 if [ -z "$BIN" ]; then
-  echo "找不到 notebooklm：请 pip install notebooklm-py，或设置 NOTEBOOKLM_BIN" >&2
+  echo "找不到 notebooklm：请 pip3 install notebooklm-py，或设置 NOTEBOOKLM_BIN" >&2
   exit 1
 fi
 exec "$BIN" "$@"

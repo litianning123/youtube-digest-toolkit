@@ -10,7 +10,7 @@
 
 认证（一次性，人工完成）：
   用户在自己电脑上跑 `notebooklm login --browser-cookies chrome`
-  （需先 pip install "notebooklm-py[cookies]"，Chrome 里登录好 Google 小号），
+  （需先 pip3 install "notebooklm-py[cookies]"，Chrome 里登录好 Google 小号），
   把生成的 ~/.notebooklm/profiles/default/storage_state.json 发给助手，
   助手放到本机同路径。之后每天 cron 跑本脚本前会自动 `auth refresh --quiet`
   保活（失败不致命）。
