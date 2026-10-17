@@ -13,7 +13,7 @@
     python3 fetch.py            # 先抓取
     python3 make_digest.py      # 用今天日期生成
     python3 make_digest.py 2026-10-14   # 指定日期
-    python3 make_digest.py --with-cache # 顺带把 notebooklm-cache/ 里的精读回填进摘要
+    python3 make_digest.py --with-cache # 顺带把 notebooklm_notes/ 里的精读回填进摘要
     python3 fetch.py --mark-seen        # 生成后标记已处理，避免明天重复
 
 可选：在生成前给视频补字段，摘要会自动渲染——
@@ -211,7 +211,7 @@ def main(argv: list[str]) -> int:
             if data.get("deep_dive"):
                 v.update(data)
                 filled += 1
-        print(f"从 notebooklm-cache 回填 {filled} 个视频的精读。")
+        print(f"从 notebooklm_notes 回填 {filled} 个视频的精读。")
     kept = filter_videos(videos, config.get("topics"))
     cap = config.get("max_items") or MAX_ITEMS
 

@@ -96,11 +96,11 @@ YouTube 官方不提供字幕接口，但 NotebookLM（Google 的 AI 笔记服�
 pip3 install "notebooklm-py[cookies]"      # 复用浏览器登录态需要 cookies extra
 notebooklm login --browser-cookies chrome  # 一次性登录（建议小号）；之后脚本每次自动 auth refresh
 python3 fetch_notebooklm.py   # 建当天专用 notebook → 加视频源 → 逐个提问
-                              # 精读落到 notebooklm-cache/<video_id>.md
+                              # 精读落到 notebooklm_notes/<video_id>.md
 python3 make_digest.py --with-cache   # 生成摘要时自动回填精读
 ```
 
-输出 `notebooklm-cache/<video_id>.md`：Obsidian-ready 的独立精读笔记，含完整
+输出 `notebooklm_notes/<video_id>.md`：Obsidian-ready 的独立精读笔记，含完整
 frontmatter（标题/日期/video_id/视频网址/频道/时长/tags），正文为一句话核心观点、
 关键要点、可操作建议、局限与争议，外加三组元信息：
 
@@ -186,7 +186,7 @@ Windows 可用任务计划程序实现同样效果。
    之后每天的定时任务会自动用 NotebookLM 出精读。
 
 打包前先排掉个人数据：`config.json`（含 `playlist_id` 与 `transcriptyt_key`）、
-`new_videos.json`（含评论者账号）、`state.json`、`notebooklm-cache/`、
+`new_videos.json`（含评论者账号）、`state.json`、`notebooklm_notes/`、
 `transcripts/`、生成的摘要目录。它们都在 `.gitignore` 里，所以
 `git archive HEAD | gzip > toolkit.tar.gz` 只打包已提交文件、天然不含这些；
 直接 `zip -r` 整个目录则会把它们一起带走。
@@ -201,12 +201,12 @@ NotebookLM 的总结在 Google 服务端完成，不占你的 token。
 | `fetch.py` | 抓播放列表新增视频（含高赞评论）→ `new_videos.json`；`--mark-seen` 记账到 `state.json` |
 | `digest.py` | 渲染库：分类/章节/评论/精读/Markdown，可单独 import |
 | `make_digest.py` | 组装当天摘要目录；`--with-cache` 回填精读，`git_push` 提交推送 |
-| `fetch_notebooklm.py` | 用 NotebookLM 出精读 → `notebooklm-cache/<video_id>.md` |
+| `fetch_notebooklm.py` | 用 NotebookLM 出精读 → `notebooklm_notes/<video_id>.md` |
 | `fetch_transcript.py` | TranscriptYT 降级：全文转写 → `transcripts/<video_id>.txt` |
 | `notebooklm` | wrapper 脚本：清洗 `no_proxy` 里的 IPv6 条目后调用 CLI |
 | `config.example.json` | 配置模板，复制成 `config.json` 后填 `playlist_id` |
 
-`config.json`、`state.json`、`new_videos.json`、`notebooklm-cache/`、`transcripts/`
+`config.json`、`state.json`、`new_videos.json`、`notebooklm_notes/`、`transcripts/`
 与生成的摘要目录都在 `.gitignore` 里，不会被提交。
 
 ## 限制

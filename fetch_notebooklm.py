@@ -5,7 +5,7 @@
   1. 建一个当天专用的 notebook（标题 "YouTube 摘要 YYYY-MM-DD"）；
   2. 把 new_videos.json 里每个新视频的 YouTube URL 加为 source；
   3. 等待各 source 处理完成；
-  4. 对每个 source 用固定中文 prompt 提问，答案存 notebooklm/<video_id>.md；
+  4. 对每个 source 用固定中文 prompt 提问，答案存 notebooklm_notes/<video_id>.md；
   5. stdout 打印 JSON 汇总，调用方据此把 deep_dive 写回视频字段。
 
 认证（一次性，人工完成）：
@@ -19,7 +19,7 @@
     python3 fetch_notebooklm.py [--date YYYY-MM-DD] [--auth-check]
     python3 fetch_notebooklm.py --auth-check   # 只检查登录状态，0=ok
 
-成功：notebooklm/<video_id>.md；stdout 打印 {"ok": true, ...}。
+成功：notebooklm_notes/<video_id>.md；stdout 打印 {"ok": true, ...}。
 失败：单个视频失败只记 failed，不中断整体；exit 0 仍表示脚本跑完。
 未登录：exit 2，调用方应在聊天里提醒用户完成一次性登录，当天其余流程照常。
 
@@ -41,7 +41,7 @@ from pathlib import Path
 BASE = Path(__file__).resolve().parent
 VENV_BIN = BASE / ".venv-notebooklm" / "bin" / "notebooklm"
 WRAPPER = BASE / "notebooklm"
-CACHE_DIR = BASE / "notebooklm-cache"
+CACHE_DIR = BASE / "notebooklm_notes"
 NEW_VIDEOS = BASE / "new_videos.json"
 PROFILE_STATE = Path.home() / ".notebooklm" / "profiles" / "default" / "storage_state.json"
 
@@ -298,7 +298,8 @@ def main(argv: list[str]) -> int:
                          ensure_ascii=False))
         return 1
     try:
-        nb_id = json.loads(out).get("id", "")
+        data = json.loads(out)
+        nb_id = data.get("id") or data.get("notebook", {}).get("id", "")
     except Exception:
         nb_id = ""
     if not nb_id:
@@ -318,7 +319,8 @@ def main(argv: list[str]) -> int:
                            "error": (err or out)[:300]})
             continue
         try:
-            sid = json.loads(out).get("id", "")
+            _d = json.loads(out)
+            sid = _d.get("id") or _d.get("source", {}).get("id", "")
         except Exception:
             sid = ""
         if not sid:

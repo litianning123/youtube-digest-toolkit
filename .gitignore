@@ -10,7 +10,7 @@ YoutubeInbox/
 *-YouTube 每日摘要/
 
 # 个人内容产物：精读笔记 / 全文转写 / notebooklm 虚拟环境
-notebooklm-cache/
+notebooklm_notes/
 transcripts/
 .venv-notebooklm/
 
