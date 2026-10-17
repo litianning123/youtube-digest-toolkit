@@ -7,12 +7,12 @@
 
 **A. 纯脚本版（零成本，不需要 AI）**
 抓取新增视频 → 按主题过滤 → 生成大纲版摘要（标题/简介/章节/链接），
-按加入时间从新到旧排列。
+无评分时按加入时间从新到旧排列（有评分则按分数从高到低，见 B）。
 
 **B. 接 LLM 版（推荐）**
 在 A 的基础上，让 AI 给每个视频打推荐指数（百分制）并写一句话推荐理由，
 摘要按分数从高到低排列；`fetch.py` 还会抓取每个视频的高赞评论供 AI 参考；
-全文精读走 NotebookLM（见下），不限视频分数、不限条数。
+全文精读走 NotebookLM（见下），所有视频都会尝试，不看分数；单条失败不影响当天摘要。
 
 `digest.py` 已内置评分/评论/精读渲染，
 你只需要把视频信息喂给任意大模型，按下面的评分标准打分即可。
@@ -90,7 +90,8 @@ for i, (v, topics) in enumerate(ranked, 1):
 
 YouTube 官方不提供字幕接口，但 NotebookLM（Google 的 AI 笔记服务）
 可以在服务端抓取视频字幕并做总结。用开源的非官方客户端 `notebooklm-py`
-（协议以其仓库为准）即可程序化调用，不限视频分数、所有视频都能出精读：
+（协议以其仓库为准）即可程序化调用，不限视频分数，所有视频都会尝试；
+单条失败只记进 `failed`，不影响其余视频和当天摘要：
 
 ```bash
 pip3 install "notebooklm-py[cookies]"      # 复用浏览器登录态需要 cookies extra
@@ -112,6 +113,10 @@ frontmatter（标题/日期/video_id/视频网址/频道/时长/tags），正文
 （标记 `deep_dive_source: notebooklm`），「内容标签 / 关键概念 / 金句摘录」
 填进 `nb_tags` / `nb_concepts` / `nb_quotes`，`digest.py` 负责渲染，
 标签还会并入文章 frontmatter。没有笔记、或想手写，直接给视频补这些字段同样生效。
+
+`fetch_notebooklm.py` 未登录时以 `exit 2` 退出，另外 `--auth-check` 只查登录态（0=已登录）。
+cron 里建议先跑 `--auth-check` 判断，或把精读排在 `make_digest.py` 之后，
+免得一次未登录就用 `&&` 掐断当天的摘要。
 
 环境注意：如果你的机器 `no_proxy` 环境变量里有 IPv6 条目（如 `::1`），
 `notebooklm` 命令会报 `Invalid port` 起不来——这是 notebooklm-py 依赖的 httpx
@@ -170,6 +175,10 @@ Windows 可用任务计划程序实现同样效果。
 在 `digest.py` 的 `FINANCE_KEYWORDS` / `AI_TECH_KEYWORDS` 里，按需增删。
 比如不关心币圈就删掉相关词，只想看 AI 就收紧列表。
 
+两级控制：`config.json` 的 `topics` 决定要哪几个大类
+（`finance` / `ai_tech`，空数组=不过滤），这两个关键词表决定
+「什么内容算命中某一类」。
+
 ## Muse 用户复刻指南（想复刻完整机器人）
 
 把这个压缩包发给你的 Muse，它会帮你搭出和原版一样的机器人：
@@ -206,8 +215,8 @@ NotebookLM 的总结在 Google 服务端完成，不占你的 token。
 | `notebooklm` | wrapper 脚本：清洗 `no_proxy` 里的 IPv6 条目后调用 CLI |
 | `config.example.json` | 配置模板，复制成 `config.json` 后填 `playlist_id` |
 
-`config.json`、`state.json`、`new_videos.json`、`notebooklm_notes/`、`transcripts/`
-与生成的摘要目录都在 `.gitignore` 里，不会被提交。
+`config.json`、`state.json`、`new_videos.json`、`notebooklm_notes/`、`transcripts/`、
+`.venv-notebooklm/` 与生成的摘要目录都在 `.gitignore` 里，不会被提交。
 
 ## 限制
 
@@ -216,6 +225,8 @@ NotebookLM 的总结在 Google 服务端完成，不占你的 token。
   或人工复制字幕文本再喂给 AI。
 - API key 读不到设为"私密"的播放列表，请用"不公开"或"公开"。
 - 每个人的 API key 互相独立，请勿分享自己的 key。
+- 评论区关闭或无权限时（HTTP 403）按「无评论」处理，摘要里就没有观众精华；
+  配额耗尽同样返回 403，也会被静默当作无评论。
 - `notebooklm-py` 是非官方逆向客户端，Google 改内部接口就可能失效；
   届时用 TranscriptYT 降级方案顶上。
 

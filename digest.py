@@ -189,23 +189,34 @@ def render_video_body(v: dict, topics: list[str]) -> str:
     return "\n".join(lines).rstrip() + "\n"
 
 
+def _yaml_str(value: object) -> str:
+    """把文本放进 YAML 双引号标量：转义反斜杠/双引号，换行压成空格。"""
+    s = str(value).replace("\\", "\\\\").replace('"', '\\"').replace("\n", " ")
+    return f'"{s}"'
+
+
 def build_article(digest_date: str, rank: int, v: dict, topics: list[str]) -> str:
-    """生成单视频文章 Markdown（含 frontmatter，可独立保存/转存）。"""
+    """生成单视频文章 Markdown（含 frontmatter，可独立保存/转存）。
+
+    frontmatter 里的文本字段一律走 _yaml_str：频道名/标签常含 `:`、`#`、`[`，
+    不转义会让整段 frontmatter 变成非法 YAML（Obsidian 属性面板直接失效）。
+    """
     title = v.get("title", "(无标题)")
     score = v.get("score") or ""
-    reason = (v.get("score_reason") or "").replace('"', "'")
+    reason = v.get("score_reason") or ""
     nb_tags = [t for t in (v.get("nb_tags") or []) if t not in ("youtube", "每日摘要")]
-    tag_line = "tags: [youtube, 每日摘要" + ("".join(f", {t}" for t in nb_tags)) + "]"
+    tag_items = ["youtube", "每日摘要", *(str(t) for t in nb_tags)]
+    tag_line = "tags: [" + ", ".join(_yaml_str(t) for t in tag_items) + "]"
     lines = [
         "---",
         f"date: {digest_date}",
         f"rank: {rank}",
-        f"video_id: {v.get('video_id', '')}",
-        f"source: {v.get('url', '')}",
-        f"channel: {v.get('channel', '')}",
-        f"duration: \"{v.get('duration', '')}\"",
+        f"video_id: {_yaml_str(v.get('video_id', ''))}",
+        f"source: {_yaml_str(v.get('url', ''))}",
+        f"channel: {_yaml_str(v.get('channel', ''))}",
+        f"duration: {_yaml_str(v.get('duration', ''))}",
         f"score: {score}",
-        f"score_reason: \"{reason}\"",
+        f"score_reason: {_yaml_str(reason)}",
         f"topics: [{', '.join(topics)}]",
         tag_line,
         "---",
@@ -309,5 +320,17 @@ if __name__ == "__main__":
     fn = article_filename(1, 'a/b:c*d?e"f<g>h|i#j[k]尾')
     assert "/" not in fn and ":" not in fn and "#" not in fn and "[" not in fn
     assert fn.startswith("01-") and fn.endswith(".md")
+    # frontmatter 转义：频道/标签含 YAML 元字符也不能破坏结构
+    tricky = {
+        "video_id": "x:9", "title": "t", "channel": 'AI: 前线 #1 "频道"',
+        "url": "https://www.youtube.com/watch?v=x", "duration": "1:00",
+        "score": 90, "score_reason": '理由: 含 "引号"',
+        "nb_tags": ["C#", '引号"标签', "知识管理"],
+    }
+    esc = build_article("2026-10-14", 1, tricky, ["ai_tech"])
+    assert 'channel: "AI: 前线 #1 \\"频道\\""' in esc, esc.splitlines()[5]
+    assert 'tags: ["youtube", "每日摘要", "C#", "引号\\"标签", "知识管理"]' in esc
+    assert 'score_reason: "理由: 含 \\"引号\\""' in esc
+    assert "\nchannel: AI:" not in esc
     print(idx[:300])
-    print("…自检通过：过滤/分类/章节提取/评分排序/目录模式（总览+独立文章）均正常")
+    print("…自检通过：过滤/分类/章节提取/评分排序/目录模式/frontmatter 转义均正常")
