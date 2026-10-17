@@ -38,6 +38,7 @@ cp config.example.json config.json
 # 编辑 config.json，填入 playlist_id
 python3 fetch.py          # 抓取新增视频 → new_videos.json
 python3 make_digest.py    # 过滤 → 生成 YoutubeInbox/<日期>-YouTube 每日摘要/
+python3 fetch.py --mark-seen   # 摘要确认后标记已处理，避免明天重复抓取
 ```
 
 `config.json` 控制输出与过滤：
@@ -56,16 +57,20 @@ python3 make_digest.py    # 过滤 → 生成 YoutubeInbox/<日期>-YouTube 每�
 同一天重跑若没有实际变更，会跳过提交但仍 push 一次，把之前没推成功的提交补上。
 cron 环境下要保证 git 凭据可用（SSH key 或 credential helper），否则只会得到一条 push 失败告警。
 
-`digest.py` 是摘要生成库（只需 Python 3 标准库），拿去用。
-每天生成一个目录，内含总览 `README.md`（排行榜用 wikilink 链到各文章）
-和每个视频一篇独立文章 `NN-标题.md`（NN 为推荐指数排名），避免长文被截断、
-也方便单独保存某篇：
+`digest.py` 是摘要生成库（只需 Python 3 标准库）。
+日常直接用 `python3 make_digest.py`（含旧文件清理、`git_push`、`--with-cache`）；
+只有想自己控制流程时才用下面的库函数。它生成一个目录：总览 `README.md`
+（排行榜用 wikilink 链到各文章）+ 每个视频一篇 `NN-标题.md`（NN 为推荐指数排名），
+避免长文被截断，也方便单独保存某篇：
 
 ```python
 from digest import filter_videos, build_index, build_article, article_filename
 import json, os
 
-videos = json.load(open('new_videos.json'))
+with open('config.json', encoding='utf-8') as f:
+    cap = json.load(f).get('max_items') or 10
+with open('new_videos.json', encoding='utf-8') as f:
+    videos = json.load(f)
 kept = filter_videos(videos)          # 只留金融/理财/AI/科技，可自行改关键词
 # （可选）用 LLM 打分：v['score'] = 88; v['score_reason'] = '一句话理由'
 # （可选）从 v['top_comments'] 挑 2-3 条有信息量的评论 → v['key_comments']
@@ -73,18 +78,19 @@ kept = filter_videos(videos)          # 只留金融/理财/AI/科技，可自�
 # （可选）精读元信息 → v['nb_tags'] / v['nb_concepts'] / v['nb_quotes']
 d = '2026-10-14-YouTube 每日摘要'
 os.makedirs(d, exist_ok=True)
-open(f'{d}/README.md', 'w').write(build_index('2026-10-14', kept, total_new=len(videos)))
-ranked = sorted(kept, key=lambda vt: -(vt[0].get('score') or -1))[:10]
+with open(f'{d}/README.md', 'w', encoding='utf-8') as f:
+    f.write(build_index('2026-10-14', kept, total_new=len(videos), max_items=cap))
+ranked = sorted(kept, key=lambda vt: -(vt[0].get('score') or -1))[:cap]
 for i, (v, topics) in enumerate(ranked, 1):
-    open(f'{d}/{article_filename(i, v["title"])}', 'w').write(
-        build_article('2026-10-14', i, v, topics))
+    with open(f'{d}/{article_filename(i, v["title"])}', 'w', encoding='utf-8') as f:
+        f.write(build_article('2026-10-14', i, v, topics))
 ```
 
 ## 全文精读（NotebookLM，推荐）
 
 YouTube 官方不提供字幕接口，但 NotebookLM（Google 的 AI 笔记服务）
 可以在服务端抓取视频字幕并做总结。用开源的非官方客户端 `notebooklm-py`
-（MIT 协议）即可程序化调用，不限视频分数、所有视频都能出精读：
+（协议以其仓库为准）即可程序化调用，不限视频分数、所有视频都能出精读：
 
 ```bash
 pip3 install "notebooklm-py[cookies]"      # 复用浏览器登录态需要 cookies extra
@@ -116,7 +122,7 @@ frontmatter（标题/日期/video_id/视频网址/频道/时长/tags），正文
 ## 降级：高分视频全文精读（TranscriptYT）
 
 NotebookLM 偶尔会失败（无字幕视频、Google 改接口）。降级方案用第三方
-TranscriptYT（免费 100 条/月，只给 85 分以上视频用完全够）：
+TranscriptYT（免费额度以官网为准，够 85 分以上视频用）：
 
 1. 去 TranscriptYT 官网注册并复制 API key，填入 `config.json` 的 `transcriptyt_key`。
 2. 对高分视频运行：`python3 fetch_transcript.py <video_id>`
@@ -126,12 +132,6 @@ TranscriptYT（免费 100 条/月，只给 85 分以上视频用完全够）：
 
 注意：`fetch_transcript.py` 用 curl 发请求（在这类云主机上 urllib 读大响应
 可能被截断），key 通过临时文件传递，不会出现在命令行或日志里。
-
-摘要完成后记得标记已处理，避免重复抓取：
-
-```bash
-python3 fetch.py --mark-seen
-```
 
 ## 定时运行
 
@@ -153,7 +153,7 @@ Windows 可用任务计划程序实现同样效果。
 落在 `config.json` 的 `output_dir`（默认 `YoutubeInbox/`，也可以是指向 Obsidian 仓库的绝对路径）下，每天一个目录 `YYYY-MM-DD-YouTube 每日摘要/`：
 - `README.md`：总览，含排行榜（wikilink 链到各文章）
 - `NN-标题.md`：每个视频一篇独立文章，含 frontmatter
- （date/rank/video_id/source/channel/duration/score/topics/tags），
+ （date/rank/video_id/source/channel/duration/score/score_reason/topics/tags），
   正文含标题、频道、时长、观看链接、入选原因、推荐指数/100（一句话理由）、
   观众精华（高赞评论 2-3 条）、延伸阅读、全文章节、简介摘录；
   有精读的视频还带"全文精读"版，以及内容标签（`#tag`）、关键概念（`[[双链]]`）、
@@ -175,14 +175,21 @@ Windows 可用任务计划程序实现同样效果。
 把这个压缩包发给你的 Muse，它会帮你搭出和原版一样的机器人：
 
 1. 你自己做（约十分钟）：按上面的"准备工作"建不公开播放列表、申请 API key。
-   key 在 Muse 给你的安全链接里填，Muse 看不到原文。
+   key 在 Muse 给你的安全链接里填，Muse 看不到原文（按 Muse 的说法）。
 2. Muse 来做：通过 `custom_connector_setup` 建 `custom.youtube` 连接器、
    适配抓取脚本、创建两个定时任务（每天早上检查更新生成摘要、每周日出周报）。
+   周报不在本仓库里，需要 Muse 在每日摘要之上另行汇总。
 3. 输出位置你定：有 Obsidian+Git 的，把 `output_dir` 指到 vault 里的目录并设
    `"git_push": true`，每次生成完自动 commit + push 进知识库（像原版一样）；
    没有的可以留在本地，或由 Muse 侧再转存到 Google Drive / 发邮件（不在本仓库里）。
 4. 全文精读：在自己的电脑上跑一次 `notebooklm login`（建议小号），
    之后每天的定时任务会自动用 NotebookLM 出精读。
+
+打包前先排掉个人数据：`config.json`（含 `playlist_id` 与 `transcriptyt_key`）、
+`new_videos.json`（含评论者账号）、`state.json`、`notebooklm-cache/`、
+`transcripts/`、生成的摘要目录。它们都在 `.gitignore` 里，所以
+`git archive HEAD | gzip > toolkit.tar.gz` 只打包已提交文件、天然不含这些；
+直接 `zip -r` 整个目录则会把它们一起带走。
 
 Token 开销参考：每天约 2–5 万 tokens（额度占比以 Muse 官方口径为准）；
 NotebookLM 的总结在 Google 服务端完成，不占你的 token。
