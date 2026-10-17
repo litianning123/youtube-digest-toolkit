@@ -39,7 +39,7 @@ OUT = HERE / "new_videos.json"
 DURATION_RE = re.compile(r"PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?")
 
 
-def yt_get(path: str, params: dict) -> dict:
+def yt_get(path: str, params: dict, fatal: bool = True) -> dict:
     params = dict(params)
     params["key"] = API_KEY
     url = BASE + path + "?" + urllib.parse.urlencode(params)
@@ -49,7 +49,10 @@ def yt_get(path: str, params: dict) -> dict:
             return json.load(resp)
     except urllib.error.HTTPError as e:
         body = e.read(2000).decode("utf-8", "replace")
-        sys.exit(f"YouTube API HTTP {e.code}: {body[:300]}")
+        msg = f"YouTube API HTTP {e.code}: {body[:300]}"
+        if not fatal:
+            raise RuntimeError(msg)
+        sys.exit(msg)
 
 
 def parse_duration(iso: str) -> str:
@@ -100,6 +103,40 @@ def fetch_video_details(video_ids: list[str]) -> dict[str, dict]:
     return details
 
 
+def fetch_top_comments(video_id: str, max_results: int = 8) -> list[dict]:
+    """拉取按热度排序的高赞评论；评论区关闭时返回空列表。"""
+    try:
+        resp = yt_get(
+            "commentThreads",
+            {
+                "part": "snippet",
+                "videoId": video_id,
+                "maxResults": str(max_results),
+                "order": "relevance",
+                "textFormat": "plainText",
+            },
+            fatal=False,
+        )
+    except RuntimeError as e:
+        if "403" in str(e):  # 评论区被关闭
+            return []
+        raise
+    comments = []
+    for it in resp.get("items", []):
+        s = it["snippet"]["topLevelComment"]["snippet"]
+        text = s.get("textDisplay", "")
+        if len(text) > 300:
+            text = text[:300].rstrip() + "…"
+        comments.append(
+            {
+                "author": s.get("authorDisplayName", ""),
+                "likes": s.get("likeCount", 0),
+                "text": text,
+            }
+        )
+    return comments
+
+
 def main(argv: list[str]) -> int:
     if "--mark-seen" in argv:
         if not OUT.exists():
@@ -148,6 +185,7 @@ def main(argv: list[str]) -> int:
                 "duration": parse_duration(d.get("contentDetails", {}).get("duration", "")),
                 "description": snip.get("description", ""),
                 "url": f"https://www.youtube.com/watch?v={vid}",
+                "top_comments": fetch_top_comments(vid),
             }
         )
     OUT.write_text(json.dumps(videos, ensure_ascii=False, indent=2), encoding="utf-8")

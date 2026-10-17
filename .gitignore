@@ -7,7 +7,12 @@ new_videos.json
 
 # 生成的摘要归档（config.json 里的 output_dir）
 YoutubeInbox/
-*-YouTube 每日摘要.md
+*-YouTube 每日摘要/
+
+# 个人内容产物：精读笔记 / 全文转写 / notebooklm 虚拟环境
+notebooklm-cache/
+transcripts/
+.venv-notebooklm/
 
 # Python
 __pycache__/

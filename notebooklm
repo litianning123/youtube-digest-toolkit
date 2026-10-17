@@ -1,0 +1,34 @@
+#!/bin/bash
+# notebooklm wrapper：先清洗 no_proxy/NO_PROXY 里的 IPv6 条目，
+# 否则 notebooklm-py 的 httpx 客户端构造代理 pattern 时报 Invalid port，
+# 所有命令都会失败。IPv4/localhost 条目不受影响。
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+clean() {
+  local v="$1" out="" p
+  IFS=',' read -ra parts <<< "$v"
+  for p in "${parts[@]}"; do
+    if [[ "$p" == *:* ]]; then continue; fi
+    [ -n "$p" ] && out="${out:+$out,}$p"
+  done
+  printf '%s' "$out"
+}
+export no_proxy="$(clean "$no_proxy")"
+export NO_PROXY="$(clean "$NO_PROXY")"
+
+BIN="${NOTEBOOKLM_BIN:-}"
+if [ -z "$BIN" ] && [ -x "$SCRIPT_DIR/.venv-notebooklm/bin/notebooklm" ]; then
+  BIN="$SCRIPT_DIR/.venv-notebooklm/bin/notebooklm"
+fi
+if [ -z "$BIN" ]; then
+  # 找 PATH 里的 notebooklm，但排除自己所在的目录（避免递归调用自己）
+  OLD_IFS="$IFS"; IFS=':'
+  for d in $PATH; do
+    if [ "$d" != "$SCRIPT_DIR" ] && [ -x "$d/notebooklm" ]; then BIN="$d/notebooklm"; break; fi
+  done
+  IFS="$OLD_IFS"
+fi
+if [ -z "$BIN" ]; then
+  echo "找不到 notebooklm：请 pip install notebooklm-py，或设置 NOTEBOOKLM_BIN" >&2
+  exit 1
+fi
+exec "$BIN" "$@"
